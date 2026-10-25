@@ -27,13 +27,21 @@ if (-not (Test-Path $jar)) {
     Move-Item $tmp $jar
 }
 
-# Users log in with LDAP accounts. The UI itself only needs the bind (service account) password,
-# which infra/ldap/setup.ps1 generated into a git-ignored file.
-$secretsFile = Join-Path $PSScriptRoot '..\ldap\secrets.local'
-if (-not (Test-Path $secretsFile)) { throw "Run infra\ldap\setup.ps1 first ($secretsFile missing)" }
-$bind = Get-Content $secretsFile | Where-Object { $_ -like 'BIND_PASSWORD=*' } | ForEach-Object { ($_ -split '=', 2)[1].Trim() }
-if (-not $bind) { throw "BIND_PASSWORD missing in $secretsFile" }
-$env:KAFKA_UI_LDAP_BIND_PASSWORD = $bind
+. "$PSScriptRoot\..\common.ps1"
+
+# Users log in with LDAP accounts (bind password from infra/ldap/setup.ps1);
+# the UI itself talks to Kafka as SCRAM user kafka-ui (from infra/kafka-vm/scripts/06-security.ps1).
+# Both secrets files are git-ignored.
+$ldapSecrets  = Join-Path $PSScriptRoot '..\ldap\secrets.local'
+$kafkaSecrets = Join-Path $PSScriptRoot '..\kafka-vm\secrets.local'
+foreach ($f in @($ldapSecrets, $kafkaSecrets)) {
+    if (-not (Test-Path $f)) { throw "$f missing: run infra\ldap\setup.ps1 and infra\kafka-vm\scripts\06-security.ps1 first" }
+}
+$env:KAFKA_UI_LDAP_BIND_PASSWORD = (Read-Secrets $ldapSecrets).BIND_PASSWORD
+$env:KAFKA_UI_KAFKA_PASSWORD     = (Read-Secrets $kafkaSecrets).KAFKA_UI_PASSWORD
+if (-not $env:KAFKA_UI_LDAP_BIND_PASSWORD -or -not $env:KAFKA_UI_KAFKA_PASSWORD) {
+    throw 'BIND_PASSWORD or KAFKA_UI_PASSWORD missing in the secrets files'
+}
 
 Write-Host "Kafka UI $Version -> http://localhost:8090 (log in with an LDAP account)"
 & java -Xmx384m "-Dspring.config.additional-location=file:$config" -jar $jar

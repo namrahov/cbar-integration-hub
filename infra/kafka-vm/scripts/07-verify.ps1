@@ -10,8 +10,10 @@ $bin = '/opt/kafka/bin'
 
 # CLI tools try to create a log dir next to the binaries; point them somewhere writable.
 # Small heap: the CLI JVM shares the VM with the broker and must not push it into OOM.
+# sudo + admin.properties: brokers require SASL/SCRAM, the admin credentials are root-only.
 function Invoke-KafkaCli([string]$Tool) {
-    multipass exec $first -- env LOG_DIR=/tmp/kafka-cli KAFKA_HEAP_OPTS=-Xmx128m "$bin/$Tool" --bootstrap-server $bootstrap @args
+    multipass exec $first -- sudo env LOG_DIR=/tmp/kafka-cli KAFKA_HEAP_OPTS=-Xmx128m "$bin/$Tool" `
+        --bootstrap-server $bootstrap --command-config /etc/kafka/admin.properties @args
 }
 
 foreach ($n in $Nodes) {

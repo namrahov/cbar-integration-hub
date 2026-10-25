@@ -13,42 +13,10 @@ $Vm   = $Nodes[0].Name
 $Ip   = $Nodes[0].Ip
 $Node = Join-Path $PSScriptRoot 'node'
 
-function New-Secret([int]$Length = 24) {
-    $chars = [char[]]'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-    $bytes = New-Object byte[] $Length
-    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
-}
-
-function Read-Secrets([string]$Path) {
-    $s = @{}
-    Get-Content $Path | Where-Object { $_ -match '=' } | ForEach-Object {
-        $k, $v = $_ -split '=', 2; $s[$k.Trim()] = $v.Trim()
-    }
-    $s
-}
-
-# LF-only temp file for the VM
-function Write-LfFile([string]$Path, [string[]]$Lines) {
-    [IO.File]::WriteAllText($Path, (($Lines -join "`n") + "`n"))
-}
+. "$PSScriptRoot\..\common.ps1"
 
 $secretsFile = Join-Path $PSScriptRoot 'secrets.local'
-if (-not (Test-Path $secretsFile)) {
-    # Keep the admin password the Kafka UI login form used before, if there was one
-    $adminPassword = New-Secret
-    $oldUi = Join-Path $PSScriptRoot '..\kafka-ui\credentials.local'
-    if (Test-Path $oldUi) { $adminPassword = (Read-Secrets $oldUi).password }
-    Set-Content -Path $secretsFile -Encoding ASCII -Value @(
-        "ADMIN_PASSWORD=$adminPassword",
-        "BIND_PASSWORD=$(New-Secret)",
-        "VIEWER_PASSWORD=$(New-Secret)",
-        "LLDAP_JWT_SECRET=$(New-Secret 48)",
-        "LLDAP_KEY_SEED=$(New-Secret 48)"
-    )
-    Write-Host "Generated secrets in $secretsFile"
-}
-$s = Read-Secrets $secretsFile
+$s = Initialize-Secrets $secretsFile @('ADMIN_PASSWORD', 'BIND_PASSWORD', 'VIEWER_PASSWORD', 'LLDAP_JWT_SECRET', 'LLDAP_KEY_SEED')
 
 Write-Host "[lldap] copying files to $Vm"
 multipass exec $Vm -- bash -c 'rm -rf /tmp/lldap-node && mkdir -p /tmp/lldap-node'

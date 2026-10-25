@@ -46,13 +46,46 @@ until name resolution is fixed (seen in drill 3 before the lab switch existed).
 | `01-create-vms`           | no           | Multipass VMs; starts stopped ones                     |
 | `02-lab-network`          | first run    | `KafkaLab` switch + second NIC on each VM (stops/starts VMs) |
 | `03-static-ip`            | no           | netplan static IP on eth1, `/etc/hosts`, ping mesh     |
-| `04-provision`            | no           | Java, Kafka, user, dirs, sysctl, systemd, `kafka-drill` |
-| `05-bootstrap-cluster`    | no           | one cluster id, `kafka-storage format`, start services |
-| `06-verify`               | no           | service state, quorum, RF=3 test topic, URP            |
-| `07-drills`               | no           | failure drills (below), not part of `up.ps1`           |
+| `04-provision`            | no           | Java, Kafka, user, dirs, sysctl, systemd, SASL config, `kafka-drill` |
+| `05-bootstrap-cluster`    | no           | one cluster id, `kafka-storage format` + SCRAM for broker/admin, start |
+| `06-security`             | no           | app SCRAM users + ACLs                                 |
+| `07-verify`               | no           | service state, quorum, RF=3 test topic, URP            |
+| `08-drills`               | no           | failure drills (below), not part of `up.ps1`           |
+| `migrate-to-sasl`         | no           | one-off: existing PLAINTEXT cluster -> SASL + ACLs     |
 
 `02-lab-network` checks first and only needs elevation when it has work to do. Run it once
 in "Run as administrator" PowerShell; after that `up.ps1` runs as a normal user.
+
+## Security (SASL/SCRAM + ACLs)
+
+Port 9092 accepts only `SASL_PLAINTEXT` with `SCRAM-SHA-512`; brokers authenticate to each other
+the same way. `StandardAuthorizer` with `allow.everyone.if.no.acl.found=false`: no ACL, no access.
+Passwords are generated into `secrets.local` (git-ignored).
+
+| Account                | Kind       | Rights                                                    |
+|------------------------|------------|-----------------------------------------------------------|
+| `broker`               | super user | inter-broker traffic                                      |
+| `admin`                | super user | operator CLI via `/etc/kafka/admin.properties` (root only, use `sudo`) |
+| `cbar-producer`        | app        | all topics: Write, Describe, Create, DescribeConfigs      |
+| `cbar-integration-hub` | app        | all topics: Read, Describe; all groups: Read              |
+| `kafka-ui`             | tool       | everything (per-person limits come from Kafka UI RBAC)    |
+
+Checked: a client without credentials gets nothing, a wrong password fails with
+`Authentication failed`, the producer account cannot consume and the consumer account cannot
+produce or create topics (`AuthorizationException`).
+
+Known gaps, next steps: traffic is not encrypted (TLS → `SASL_SSL`); the controller listener is
+PLAINTEXT and `User:ANONYMOUS` is a super user for it (mTLS); app passwords sit in
+`application.yml` in plain text (lab decision; production: vault / env vars, one account per app).
+
+Operator CLI on a node:
+
+```bash
+sudo env LOG_DIR=/tmp/kafka-cli /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9092 \
+  --command-config /etc/kafka/admin.properties --list
+sudo env LOG_DIR=/tmp/kafka-cli /opt/kafka/bin/kafka-acls.sh --bootstrap-server kafka-1:9092 \
+  --command-config /etc/kafka/admin.properties --list
+```
 
 ## Layout on each node
 
@@ -74,7 +107,7 @@ multipass shell kafka-1
 sudo systemctl status kafka
 sudo journalctl -u kafka -f
 sudo tail -f /var/log/kafka/server.log
-kafka-drill desc        # partitions, leaders, ISR of the drill topic
+sudo kafka-drill desc   # partitions, leaders, ISR of the drill topic
 ```
 
 Config change → edit template → `04-provision.ps1` → **rolling restart**, one node at a time,
@@ -82,7 +115,7 @@ waiting until under-replicated partitions are 0 before the next:
 
 ```powershell
 multipass exec kafka-1 -- sudo systemctl restart kafka
-.\scripts\06-verify.ps1
+.\scripts\07-verify.ps1
 ```
 
 Upgrade → set `$KafkaVersion` in `config.ps1` → `04-provision.ps1` (new dir, symlink switch) → rolling restart.
@@ -90,7 +123,7 @@ Upgrade → set `$KafkaVersion` in `config.ps1` → `04-provision.ps1` (new dir,
 ## Failure drills
 
 ```powershell
-.\scripts\07-drills.ps1
+.\scripts\08-drills.ps1
 ```
 
 Writes with `acks=all` + idempotence to topic `drill` (RF=3, min.insync.replicas=2) and compares
@@ -117,13 +150,13 @@ What the first manual run showed:
 - **1 GB VMs → OOM killer** killed the broker when a CLI JVM ran next to it; systemd restarted
   it. VMs are now 1.5 GB (resized with a rolling restart) and CLI tools run with `-Xmx128m`.
 
-Second run (static IPs, 1.5 GB VMs, `07-drills.ps1`): all four drills OK — 500/500, 0/300,
+Second run (static IPs, 1.5 GB VMs, `08-drills.ps1`): all four drills OK — 500/500, 0/300,
 500/500, 300/300. In drill 2 the producer now fails fast with `NOT_ENOUGH_REPLICAS`
 (300 send errors in 2 s) instead of hanging.
 
 ## Not yet covered (next steps)
 
-- TLS + SASL/SCRAM listeners, ACLs
+- TLS (SASL_SSL), mTLS on the controller listener
 - Monitoring: JMX exporter → Prometheus → Grafana
 - Dedicated controller nodes, DR cluster with MirrorMaker 2
 - Ansible instead of shell scripts

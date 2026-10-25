@@ -27,3 +27,9 @@ $VmMemory = '1536M'
 $VmDisk   = '10G'
 
 $NodeDir = Join-Path $PSScriptRoot 'node'
+
+# SASL/SCRAM accounts. Passwords are generated into the git-ignored secrets file.
+#   broker, admin : super users (inter-broker traffic, operator CLI)
+#   others        : application accounts, limited by ACLs (06-security.ps1)
+$SecretsFile = Join-Path $PSScriptRoot 'secrets.local'
+$KafkaSecretKeys = @('BROKER_PASSWORD', 'ADMIN_PASSWORD', 'PRODUCER_PASSWORD', 'CONSUMER_PASSWORD', 'KAFKA_UI_PASSWORD')

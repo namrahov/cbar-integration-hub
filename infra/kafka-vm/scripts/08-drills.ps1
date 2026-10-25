@@ -14,9 +14,10 @@ $second = $Nodes[1].Name
 $third = $Nodes[2].Name
 $results = New-Object System.Collections.Generic.List[object]
 
-function Drill([string]$cmd) { multipass exec $first -- kafka-drill @($cmd -split ' ') }
+# sudo: kafka-drill authenticates as admin with the root-only /etc/kafka/admin.properties
+function Drill([string]$cmd) { multipass exec $first -- sudo kafka-drill @($cmd -split ' ') }
 # When only the first node is alive, keep it as the only bootstrap server
-function DrillAlone([string]$cmd) { multipass exec $first -- env BS="$($first):9092" kafka-drill @($cmd -split ' ') }
+function DrillAlone([string]$cmd) { multipass exec $first -- sudo env BS="$($first):9092" kafka-drill @($cmd -split ' ') }
 function Count([switch]$Alone) {
     if ($Alone) { [int](DrillAlone 'count') } else { [int](Drill 'count') }
 }
@@ -24,7 +25,7 @@ function Count([switch]$Alone) {
 function Wait-IsrFull([int]$TimeoutSec = 180) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
-        multipass exec $first -- kafka-drill isr-full
+        multipass exec $first -- sudo kafka-drill isr-full
         if ($LASTEXITCODE -eq 0) { return [int]$sw.Elapsed.TotalSeconds }
         Start-Sleep -Seconds 5
     }
@@ -66,8 +67,9 @@ Write-Host "ISR full again after $t s (static IPs: no /etc/hosts fix needed)"
 $before = Count
 Drill 'produce drill3 500'
 Add-Result "recovered" 500 $before (Count) 500
-multipass exec $first -- env LOG_DIR=/tmp/kafka-cli KAFKA_HEAP_OPTS=-Xmx128m `
+multipass exec $first -- sudo env LOG_DIR=/tmp/kafka-cli KAFKA_HEAP_OPTS=-Xmx128m `
     /opt/kafka/bin/kafka-leader-election.sh --bootstrap-server "$($first):9092" `
+    --admin.config /etc/kafka/admin.properties `
     --election-type PREFERRED --all-topic-partitions 2>&1 | Out-Null
 Drill 'desc'
 

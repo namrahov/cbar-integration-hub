@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Installs Kafka on one node. Idempotent: safe to re-run after config changes.
-# Usage: install-kafka.sh <kafka_version> <scala_version> <node_id> <hostname> <rack>
+# Usage: install-kafka.sh <kafka_version> <scala_version> <node_id> <hostname> <rack> <secrets file>
+# The secrets file holds BROKER_PASSWORD and ADMIN_PASSWORD; it is deleted after use.
 set -euo pipefail
 
 KAFKA_VERSION="$1"
@@ -8,6 +9,7 @@ SCALA_VERSION="$2"
 NODE_ID="$3"
 NODE_HOST="$4"
 NODE_RACK="$5"
+SECRETS="$6"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DIST="kafka_${SCALA_VERSION}-${KAFKA_VERSION}"
@@ -51,12 +53,36 @@ chown -R root:root "/opt/$DIST"
 ln -sfn "/opt/$DIST" /opt/kafka   # upgrades = new dir + switch symlink
 
 echo "== [$NODE_HOST] configuration (node.id=$NODE_ID, rack=$NODE_RACK)"
+sed -i 's/\r$//' "$SECRETS"
+# shellcheck disable=SC1090
+source "$SECRETS"
+rm -f "$SECRETS"
+umask 027
 sed -e "s/__NODE_ID__/$NODE_ID/g" \
     -e "s/__NODE_HOST__/$NODE_HOST/g" \
     -e "s/__NODE_RACK__/$NODE_RACK/g" \
+    -e "s/__BROKER_PASSWORD__/$BROKER_PASSWORD/g" \
     "$HERE/server.properties.tmpl" > /etc/kafka/server.properties
 chown root:kafka /etc/kafka/server.properties
 chmod 0640 /etc/kafka/server.properties
+
+# Operator CLI connection (super user admin). Readable by root only: use the tools via sudo.
+cat > /etc/kafka/admin.properties <<EOF
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=SCRAM-SHA-512
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="admin" password="$ADMIN_PASSWORD";
+EOF
+chown root:root /etc/kafka/admin.properties
+chmod 0600 /etc/kafka/admin.properties
+
+# SCRAM credentials for broker/admin are written into the metadata log at format time
+# (05-bootstrap-cluster). Only needed for a fresh cluster; root only.
+cat > /etc/kafka/bootstrap-scram.env <<EOF
+BROKER_PASSWORD=$BROKER_PASSWORD
+ADMIN_PASSWORD=$ADMIN_PASSWORD
+EOF
+chmod 0600 /etc/kafka/bootstrap-scram.env
+umask 022
 
 install -m 0644 "$HERE/kafka.service" /etc/systemd/system/kafka.service
 systemctl daemon-reload

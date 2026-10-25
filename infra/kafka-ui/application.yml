@@ -69,6 +69,11 @@ kafka:
     - name: cbar-lab
       # Hostnames resolve to the static lab IPs (Windows hosts file)
       bootstrapServers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      # The UI connects as SCRAM user kafka-ui (broad ACLs); per-person limits come from rbac above
+      properties:
+        security.protocol: SASL_PLAINTEXT
+        sasl.mechanism: SCRAM-SHA-512
+        sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="kafka-ui" password="${KAFKA_UI_KAFKA_PASSWORD}";
       # What a user may change is decided per role (rbac above), not cluster-wide
       readOnly: false
 

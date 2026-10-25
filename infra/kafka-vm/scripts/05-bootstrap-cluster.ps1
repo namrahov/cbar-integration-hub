@@ -8,7 +8,8 @@ $ErrorActionPreference = 'Continue'
 $first = $Nodes[0].Name
 
 # Reuse the cluster id if any node is already formatted, otherwise generate a new one
-$clusterId = multipass exec $first -- bash -c "sudo grep -s '^cluster.id=' /var/lib/kafka/data/meta.properties | cut -d= -f2"
+$meta = multipass exec $first -- sudo cat /var/lib/kafka/data/meta.properties 2>$null
+$clusterId = ($meta | Where-Object { $_ -like 'cluster.id=*' }) -replace '^cluster.id=', ''
 if (-not $clusterId) {
     $clusterId = multipass exec $first -- env LOG_DIR=/tmp/kafka-cli /opt/kafka/bin/kafka-storage.sh random-uuid
 }
@@ -18,14 +19,12 @@ Write-Host "Cluster id: $clusterId"
 
 foreach ($n in $Nodes) {
     Write-Host "[format] $($n.Name)"
-    # Run as the kafka user so the data dir stays owned by the service account
-    multipass exec $n.Name -- sudo -u kafka env LOG_DIR=/var/log/kafka /opt/kafka/bin/kafka-storage.sh format `
-        --config /etc/kafka/server.properties --cluster-id $clusterId --ignore-formatted
+    multipass exec $n.Name -- sudo bash /tmp/kafka-node/format-storage.sh $clusterId
     if ($LASTEXITCODE -ne 0) { throw "storage format failed on $($n.Name)" }
 }
 
 # Start all nodes together so the controller quorum can elect a leader
 foreach ($n in $Nodes) {
     Write-Host "[start] $($n.Name)"
-    multipass exec $n.Name -- sudo systemctl enable --now kafka
+    multipass exec $n.Name -- sudo systemctl enable --now kafka 2>&1 | Out-Null
 }
