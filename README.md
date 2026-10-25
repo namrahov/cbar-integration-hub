@@ -7,6 +7,7 @@ This repo is the **consumer** side; messages are published by the sibling projec
 | Module                                     | What                                       |
 |--------------------------------------------|--------------------------------------------|
 | [infra/kafka-vm](infra/kafka-vm/README.md) | 3-node Kafka KRaft cluster on VMs, systemd |
+| `infra/kafka-ui`                           | Kafbat Kafka UI 1.5.0 on Windows: `.\infra\kafka-ui\start.ps1` → http://localhost:8090 |
 | `src/` (Spring Boot 4.1, Java 25)          | `@KafkaListener` on `cbar.messages`        |
 
 ## Flow

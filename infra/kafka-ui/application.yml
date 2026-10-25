@@ -1,0 +1,18 @@
+# Kafbat Kafka UI settings for the 3-node lab cluster
+server:
+  port: 8090
+  # Only reachable from this machine; in production put it behind SSO/LDAP instead
+  address: 127.0.0.1
+
+kafka:
+  clusters:
+    - name: cbar-lab
+      # Hostnames resolve to the static lab IPs (Windows hosts file)
+      bootstrapServers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      # Lab: allow producing/deleting from the UI. Production: true (browse only)
+      readOnly: false
+
+# Clusters are managed in this file only, not editable from the UI
+dynamic:
+  config:
+    enabled: false
