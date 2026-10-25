@@ -1,0 +1,58 @@
+# JMX exporter rules: which Kafka MBeans become Prometheus metrics, and under which names.
+# Only the metrics the dashboard and alerts use are exported; everything else is dropped
+# to keep scrapes fast and the broker's overhead low. JVM metrics (jvm_*) come for free.
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+rules:
+  # --- Replication health: the core HA signals ---
+  - pattern: kafka.server<type=ReplicaManager, name=(UnderReplicatedPartitions|UnderMinIsrPartitionCount|AtMinIsrPartitionCount|OfflineReplicaCount|PartitionCount|LeaderCount)><>Value
+    name: kafka_server_replicamanager_$1
+    type: GAUGE
+  - pattern: kafka.server<type=ReplicaManager, name=(IsrShrinksPerSec|IsrExpandsPerSec)><>Count
+    name: kafka_server_replicamanager_$1_total
+    type: COUNTER
+
+  # --- Controller (KRaft): only the active controller reports 1 / the cluster-wide counts ---
+  - pattern: kafka.controller<type=KafkaController, name=(ActiveControllerCount|OfflinePartitionsCount|GlobalPartitionCount|GlobalTopicCount|ActiveBrokerCount|FencedBrokerCount)><>Value
+    name: kafka_controller_$1
+    type: GAUGE
+
+  # --- Throughput per topic and in total ---
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=(MessagesInPerSec|BytesInPerSec|BytesOutPerSec|FailedProduceRequestsPerSec|FailedFetchRequestsPerSec|TotalProduceRequestsPerSec), topic=(.+)><>Count
+    name: kafka_server_brokertopicmetrics_$1_total
+    type: COUNTER
+    labels:
+      topic: $2
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=(MessagesInPerSec|BytesInPerSec|BytesOutPerSec|FailedProduceRequestsPerSec|FailedFetchRequestsPerSec|TotalProduceRequestsPerSec)><>Count
+    name: kafka_server_brokertopicmetrics_$1_total
+    type: COUNTER
+
+  # --- Request latency as seen by the broker ---
+  - pattern: kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(Produce|FetchConsumer|Fetch)><>(50thPercentile|99thPercentile)
+    name: kafka_network_requestmetrics_totaltimems
+    type: GAUGE
+    labels:
+      request: $1
+      quantile: $2
+
+  # --- Saturation: how busy the broker's thread pools are (1 = idle, 0 = saturated) ---
+  - pattern: kafka.server<type=KafkaRequestHandlerPool, name=RequestHandlerAvgIdlePercent><>OneMinuteRate
+    name: kafka_server_requesthandler_avg_idle_ratio
+    type: GAUGE
+  - pattern: kafka.network<type=SocketServer, name=NetworkProcessorAvgIdlePercent><>Value
+    name: kafka_network_processor_avg_idle_ratio
+    type: GAUGE
+
+  # --- Security: SASL authentication results per listener ---
+  - pattern: kafka.server<type=socket-server-metrics, listener=(.+), networkProcessor=(.+)><>(successful|failed)-authentication-total
+    name: kafka_server_authentication_$3_total
+    type: COUNTER
+    labels:
+      listener: $1
+      processor: $2
+
+  # --- KRaft quorum ---
+  - pattern: kafka.server<type=raft-metrics><>(current-leader|current-epoch|high-watermark|commit-latency-avg)
+    name: kafka_raft_$1
+    type: GAUGE

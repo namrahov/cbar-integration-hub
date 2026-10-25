@@ -1,0 +1,114 @@
+# Alert rules. Visible in Prometheus (Alerts tab) and Grafana. No Alertmanager in the lab:
+# in production these go through Alertmanager to e-mail / Teams / on-call.
+groups:
+  - name: kafka-cluster
+    rules:
+      - alert: KafkaBrokerDown
+        expr: up{job="kafka"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Broker {{ $labels.node }} is not reachable"
+          description: "JMX exporter on {{ $labels.instance }} does not answer: broker process or VM is down."
+
+      - alert: KafkaOfflinePartitions
+        expr: max(kafka_controller_offlinepartitionscount) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value }} partition(s) have no leader"
+          description: "Producers and consumers of these partitions are blocked."
+
+      - alert: KafkaUnderMinIsr
+        expr: sum(kafka_server_replicamanager_underminisrpartitioncount) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value }} partition(s) below min.insync.replicas"
+          description: "acks=all writes to these partitions fail with NOT_ENOUGH_REPLICAS."
+
+      - alert: KafkaUnderReplicatedPartitions
+        expr: sum(kafka_server_replicamanager_underreplicatedpartitions) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} under-replicated partition(s) for 5 minutes"
+          description: "A broker is down or a follower cannot keep up. One more failure may block writes."
+
+      - alert: KafkaActiveControllerCount
+        expr: sum(kafka_controller_activecontrollercount) != 1
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Active controller count is {{ $value }} (expected 1)"
+          description: "0 = KRaft quorum lost, metadata cannot change. >1 = split brain."
+
+      - alert: KafkaIsrFlapping
+        expr: sum(rate(kafka_server_replicamanager_isrshrinkspersec_total[5m])) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "ISR keeps shrinking"
+          description: "Followers repeatedly fall out of sync: check network, disk and GC pauses."
+
+      - alert: KafkaBrokerRestarted
+        expr: changes(process_start_time_seconds{job="kafka"}[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Broker {{ $labels.node }} restarted in the last 15 minutes"
+          description: "Planned (rolling restart) or a crash / OOM kill - check journalctl -u kafka."
+
+      - alert: KafkaAuthenticationFailures
+        expr: sum by (node) (rate(kafka_server_authentication_failed_total[5m])) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Failed SASL logins on {{ $labels.node }}"
+          description: "Wrong or rotated passwords, or someone probing the brokers."
+
+  - name: hosts
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.node }}: node_exporter not reachable (VM down?)"
+
+      - alert: NodeDiskAlmostFull
+        expr: 1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} > 0.75
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.node }}: disk {{ $value | humanizePercentage }} full"
+
+      - alert: NodeMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.node }}: less than 10% memory available (OOM risk)"
+
+  - name: kafka-apps
+    rules:
+      - alert: ProducerSendErrors
+        expr: sum by (job) (rate(kafka_producer_record_error_total[5m])) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }}: messages failed to send"
+          description: "Unacknowledged sends = possibly lost messages. Check the app log."
+
+      - alert: ConsumerLagHigh
+        # ">= 0" drops the NaN the client reports before its first fetch
+        expr: max by (job) (kafka_consumer_fetch_manager_records_lag_max >= 0) > 1000
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }}: consumer lag {{ $value }} messages"
+
+      - alert: KafkaAppDown
+        expr: up{job=~"kafka-producer|cbar-integration-hub"} == 0
+        for: 2m
+        labels: { severity: info }
+        annotations:
+          summary: "{{ $labels.job }} is not running"

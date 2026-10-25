@@ -1,0 +1,43 @@
+# Prometheus for the Kafka lab. Runs on Windows (start.ps1), listens on 127.0.0.1:9090.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - rules/*.yml
+
+scrape_configs:
+  # Kafka brokers: JMX exporter Java agent inside each broker JVM
+  - job_name: kafka
+    static_configs:
+      - targets: ['kafka-1:7071']
+        labels: { node: kafka-1 }
+      - targets: ['kafka-2:7071']
+        labels: { node: kafka-2 }
+      - targets: ['kafka-3:7071']
+        labels: { node: kafka-3 }
+
+  # OS metrics of the VMs
+  - job_name: node
+    static_configs:
+      - targets: ['kafka-1:9100']
+        labels: { node: kafka-1 }
+      - targets: ['kafka-2:9100']
+        labels: { node: kafka-2 }
+      - targets: ['kafka-3:9100']
+        labels: { node: kafka-3 }
+
+  # Spring Boot apps (Micrometer): Kafka client metrics such as send errors and consumer lag.
+  # They only show up while the apps run; their "down" alert is informational.
+  - job_name: kafka-producer
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['localhost:8081']
+  - job_name: cbar-integration-hub
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['localhost:8082']
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

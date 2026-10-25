@@ -479,7 +479,10 @@ Lab-da: Kafbat Kafka UI 1.5.0, Windows-da jar, `127.0.0.1:8090`.
 
 ## 11. Monitorinq və alerting
 
-Lab-da yoxdur (növbəti addım). Real mühitdə **istismara verilməzdən əvvəl** hazır olmalıdır.
+Lab-da qurulub: `infra/monitoring` (Prometheus + Grafana Windows-da, JMX exporter və node_exporter
+VM-lərdə, Spring Boot tətbiqləri `/actuator/prometheus` ilə). Broker dayandırılanda `KafkaBrokerDown`
+və URP alert-ləri işə düşdü, bərpadan sonra söndü. Real mühitdə monitorinq **istismara verilməzdən
+əvvəl** hazır olmalıdır; əlavə olaraq Alertmanager (bildirişlər) lazımdır.
 
 **Stack:** JMX exporter (hər brokerdə Java agent) → **Prometheus** → **Grafana**; alertlər
 Alertmanager → e-poçt / Teams / PagerDuty. Log-lar → ELK / Splunk.

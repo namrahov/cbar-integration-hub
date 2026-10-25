@@ -474,7 +474,10 @@ Lab: Kafbat Kafka UI 1.5.0, jar on Windows, `127.0.0.1:8090`.
 
 ## 11. Monitoring and alerting
 
-Not in the lab yet (next step). In a real environment it must be ready **before go-live**.
+Built in the lab: `infra/monitoring` (Prometheus + Grafana on Windows, JMX exporter and node_exporter
+on the VMs, Spring Boot apps via `/actuator/prometheus`). Stopping a broker fired `KafkaBrokerDown`
+and the URP alert, which cleared after recovery. In a real environment monitoring must be ready
+**before go-live**, plus Alertmanager for notifications.
 
 **Stack:** JMX exporter (Java agent on every broker) → **Prometheus** → **Grafana**; alerts via
 Alertmanager → e-mail / Teams / PagerDuty. Logs → ELK / Splunk.

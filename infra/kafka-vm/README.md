@@ -52,6 +52,10 @@ until name resolution is fixed (seen in drill 3 before the lab switch existed).
 | `07-verify`               | no           | service state, quorum, RF=3 test topic, URP            |
 | `08-drills`               | no           | failure drills (below), not part of `up.ps1`           |
 | `migrate-to-sasl`         | no           | one-off: existing PLAINTEXT cluster -> SASL + ACLs     |
+| `rolling-restart`         | no           | restart brokers one by one, waiting for full ISR       |
+
+`04-provision` also installs the JMX exporter (Java agent, `:7071`) and node_exporter (`:9100`)
+on every node — see [infra/monitoring](../monitoring/README.md).
 
 `02-lab-network` checks first and only needs elevation when it has work to do. Run it once
 in "Run as administrator" PowerShell; after that `up.ps1` runs as a normal user.
@@ -157,6 +161,5 @@ Second run (static IPs, 1.5 GB VMs, `08-drills.ps1`): all four drills OK — 500
 ## Not yet covered (next steps)
 
 - TLS (SASL_SSL), mTLS on the controller listener
-- Monitoring: JMX exporter → Prometheus → Grafana
 - Dedicated controller nodes, DR cluster with MirrorMaker 2
 - Ansible instead of shell scripts

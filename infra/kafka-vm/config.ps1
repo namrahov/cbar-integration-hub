@@ -3,6 +3,12 @@
 $KafkaVersion = '4.3.2'
 $ScalaVersion = '2.13'
 
+# Prometheus exporters on every node (sha256 as published with each release)
+$JmxExporterVersion  = '1.7.0'   # Java agent inside the Kafka JVM -> :7071/metrics
+$JmxExporterSha256   = '0ad843261c567d1924a017d542e14c40f2afff523d940c25ee000742fde4b3a9'
+$NodeExporterVersion = '1.12.1'  # OS metrics -> :9100/metrics
+$NodeExporterSha256  = 'b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63'
+
 # 3 nodes in KRaft combined mode (broker + controller on each node).
 # Ip = static address on the lab switch; brokers talk to each other over it.
 $Nodes = @(

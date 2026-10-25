@@ -12,6 +12,8 @@ Group=kafka
 # Small heap on purpose: Kafka needs page cache more than heap
 Environment="KAFKA_HEAP_OPTS=-Xms384m -Xmx384m"
 Environment=LOG_DIR=/var/log/kafka
+# Prometheus JMX exporter as a Java agent: metrics on :7071/metrics (installed by install-exporters.sh)
+Environment="KAFKA_OPTS=-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/etc/kafka/jmx-exporter.yml"
 ExecStart=/opt/kafka/bin/kafka-server-start.sh /etc/kafka/server.properties
 ExecStop=/opt/kafka/bin/kafka-server-stop.sh
 

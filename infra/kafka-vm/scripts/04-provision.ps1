@@ -23,4 +23,8 @@ foreach ($n in $Nodes) {
     multipass exec $n.Name -- sudo bash /tmp/kafka-node/install-kafka.sh `
         $KafkaVersion $ScalaVersion $n.Id $n.Name $n.Rack /tmp/kafka-node/secrets.env
     if ($LASTEXITCODE -ne 0) { throw "install-kafka.sh failed on $($n.Name)" }
+
+    multipass exec $n.Name -- sudo bash /tmp/kafka-node/install-exporters.sh `
+        $JmxExporterVersion $JmxExporterSha256 $NodeExporterVersion $NodeExporterSha256
+    if ($LASTEXITCODE -ne 0) { throw "install-exporters.sh failed on $($n.Name)" }
 }

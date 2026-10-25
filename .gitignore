@@ -10,3 +10,7 @@ infra/kafka-ui/credentials.local
 infra/ldap/secrets.local
 # Generated Kafka SASL/SCRAM passwords (broker, admin, apps, kafka-ui)
 infra/kafka-vm/secrets.local
+# Prometheus/Grafana binaries, collected data, Grafana admin password
+infra/monitoring/lib/
+infra/monitoring/data/
+infra/monitoring/secrets.local

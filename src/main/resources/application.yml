@@ -27,6 +27,20 @@ spring:
       # Producer app owns the topic; don't fail if it is not created yet
       missing-topics-fatal: false
 
+server:
+  # Only serves /actuator (the producer app uses 8081)
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Scraped by Prometheus (infra/monitoring)
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 app:
   kafka:
     topic: cbar.messages
