@@ -1,8 +1,20 @@
 # Kafbat Kafka UI settings for the 3-node lab cluster
 server:
   port: 8090
-  # Only reachable from this machine; in production put it behind SSO/LDAP instead
+  # Only reachable from this machine
   address: 127.0.0.1
+
+# Login page in front of the UI. One local user with full rights.
+# Production: LDAP/AD or OAuth2 (SSO) + RBAC roles (e.g. read-only for most users).
+auth:
+  type: LOGIN_FORM
+
+spring:
+  security:
+    user:
+      # Supplied by start.ps1 from credentials.local (never committed)
+      name: ${KAFKA_UI_USER}
+      password: ${KAFKA_UI_PASSWORD}
 
 kafka:
   clusters:
