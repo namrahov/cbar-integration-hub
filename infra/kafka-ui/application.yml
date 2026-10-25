@@ -4,24 +4,72 @@ server:
   # Only reachable from this machine
   address: 127.0.0.1
 
-# Login page in front of the UI. One local user with full rights.
-# Production: LDAP/AD or OAuth2 (SSO) + RBAC roles (e.g. read-only for most users).
+# Users log in with their LDAP account; what they may do comes from their LDAP groups (rbac below).
+# Production: LDAP_AD against Active Directory over LDAPS (636), or OAuth2/SSO.
 auth:
-  type: LOGIN_FORM
+  type: LDAP
 
 spring:
-  security:
-    user:
-      # Supplied by start.ps1 from credentials.local (never committed)
-      name: ${KAFKA_UI_USER}
-      password: ${KAFKA_UI_PASSWORD}
+  ldap:
+    urls: ldap://kafka-1:3890
+    # User DN pattern for the login bind: {0} = username typed on the login page
+    base: "uid={0},ou=people,dc=cbar,dc=lab"
+    # Read-only service account used to look up the user's groups
+    admin-user: "uid=kafka-ui-bind,ou=people,dc=cbar,dc=lab"
+    # Supplied by start.ps1 from infra/ldap/secrets.local (never committed)
+    admin-password: ${KAFKA_UI_LDAP_BIND_PASSWORD}
+    user-filter-search-base: "ou=people,dc=cbar,dc=lab"
+    user-filter-search-filter: "(&(uid={0})(objectClass=person))"
+    group-filter-search-base: "ou=groups,dc=cbar,dc=lab"
+
+rbac:
+  roles:
+    - name: admins
+      clusters: [cbar-lab]
+      subjects:
+        - provider: ldap
+          type: group
+          value: kafka-admins
+      permissions:
+        - resource: applicationconfig
+          actions: all
+        - resource: clusterconfig
+          actions: all
+        - resource: topic
+          value: ".*"
+          actions: all
+        - resource: consumer
+          value: ".*"
+          actions: all
+        - resource: acl
+          actions: all
+
+    # Sees cluster health, topics, partitions, consumer lag - not message contents.
+    # Payloads may hold personal/financial data: add MESSAGES_READ only for people who need it.
+    - name: viewers
+      clusters: [cbar-lab]
+      subjects:
+        - provider: ldap
+          type: group
+          value: kafka-viewers
+      permissions:
+        - resource: clusterconfig
+          actions: [VIEW]
+        - resource: topic
+          value: ".*"
+          actions: [VIEW]
+        - resource: consumer
+          value: ".*"
+          actions: [VIEW]
+        - resource: acl
+          actions: [VIEW]
 
 kafka:
   clusters:
     - name: cbar-lab
       # Hostnames resolve to the static lab IPs (Windows hosts file)
       bootstrapServers: kafka-1:9092,kafka-2:9092,kafka-3:9092
-      # Lab: allow producing/deleting from the UI. Production: true (browse only)
+      # What a user may change is decided per role (rbac above), not cluster-wide
       readOnly: false
 
 # Clusters are managed in this file only, not editable from the UI

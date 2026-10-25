@@ -27,22 +27,13 @@ if (-not (Test-Path $jar)) {
     Move-Item $tmp $jar
 }
 
-# Login credentials live in a local, git-ignored file. First run generates a random password.
-$credFile = Join-Path $PSScriptRoot 'credentials.local'
-if (-not (Test-Path $credFile)) {
-    $chars = [char[]]'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-    $bytes = New-Object byte[] 24
-    $rng.GetBytes($bytes)
-    $password = -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
-    Set-Content -Path $credFile -Encoding ASCII -Value @("user=admin", "password=$password")
-    Write-Host "Generated login credentials in $credFile"
-}
-$cred = @{}
-Get-Content $credFile | ForEach-Object { $k, $v = $_ -split '=', 2; $cred[$k.Trim()] = $v.Trim() }
-if (-not $cred.user -or -not $cred.password) { throw "$credFile must contain user=... and password=..." }
-$env:KAFKA_UI_USER = $cred.user
-$env:KAFKA_UI_PASSWORD = $cred.password
+# Users log in with LDAP accounts. The UI itself only needs the bind (service account) password,
+# which infra/ldap/setup.ps1 generated into a git-ignored file.
+$secretsFile = Join-Path $PSScriptRoot '..\ldap\secrets.local'
+if (-not (Test-Path $secretsFile)) { throw "Run infra\ldap\setup.ps1 first ($secretsFile missing)" }
+$bind = Get-Content $secretsFile | Where-Object { $_ -like 'BIND_PASSWORD=*' } | ForEach-Object { ($_ -split '=', 2)[1].Trim() }
+if (-not $bind) { throw "BIND_PASSWORD missing in $secretsFile" }
+$env:KAFKA_UI_LDAP_BIND_PASSWORD = $bind
 
-Write-Host "Kafka UI $Version -> http://localhost:8090 (login: see $credFile)"
+Write-Host "Kafka UI $Version -> http://localhost:8090 (log in with an LDAP account)"
 & java -Xmx384m "-Dspring.config.additional-location=file:$config" -jar $jar

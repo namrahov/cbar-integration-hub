@@ -6,3 +6,5 @@ out/
 # Downloaded Kafka UI jar and local login credentials
 infra/kafka-ui/lib/
 infra/kafka-ui/credentials.local
+# Generated LDAP secrets (admin, bind and viewer passwords, lldap keys)
+infra/ldap/secrets.local

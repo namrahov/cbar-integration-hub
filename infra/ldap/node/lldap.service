@@ -1,0 +1,33 @@
+[Unit]
+Description=LLDAP - lightweight LDAP directory for the Kafka lab
+Documentation=https://github.com/lldap/lldap
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=lldap
+Group=lldap
+# lldap serves its web UI from ./app
+WorkingDirectory=/opt/lldap
+
+# Non-secret settings; secrets (jwt, key seed, admin password) come from the env file
+Environment=LLDAP_LDAP_BASE_DN=dc=cbar,dc=lab
+Environment=LLDAP_DATABASE_URL=sqlite:///var/lib/lldap/users.db?mode=rwc
+Environment=LLDAP_LDAP_PORT=3890
+Environment=LLDAP_HTTP_PORT=17170
+EnvironmentFile=/etc/lldap/lldap.env
+
+ExecStart=/opt/lldap/lldap run
+Restart=on-failure
+RestartSec=5
+
+# Small, untrusted-input-facing service: lock it down
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/lldap
+
+[Install]
+WantedBy=multi-user.target
