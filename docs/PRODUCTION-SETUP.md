@@ -1,5 +1,7 @@
 # Kafka klasterinin real mühitdə (3 server) qurulması — DevOps üçün təlimat
 
+> English version: [PRODUCTION-SETUP.en.md](PRODUCTION-SETUP.en.md)
+
 Bu sənəd lab-da (bir laptopda, 3 VM üzərində) etdiklərimizi addım-addım izah edir və hər
 addımın **real mühitdə nəyə çevrildiyini**, **DevOps / infrastruktur / şəbəkə / təhlükəsizlik
 komandalarından nə istəməli olduğunu** göstərir. Terminlər ingiliscə saxlanılıb, çünki tiketlərdə,
