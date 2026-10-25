@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: cbar-integration-hub
+  kafka:
+    # Hostnames resolve to the static lab IPs (Windows hosts file)
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    consumer:
+      group-id: cbar-integration-hub
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # New group starts from the oldest retained message instead of only new ones
+      auto-offset-reset: earliest
+      # Offsets are committed by the listener container after processing, not on a timer
+      enable-auto-commit: false
+    listener:
+      # Commit after each successfully processed record: at-least-once, minimal redelivery
+      ack-mode: record
+      # One consumer thread per partition (3 partitions -> 3 threads)
+      concurrency: 3
+      # Producer app owns the topic; don't fail if it is not created yet
+      missing-topics-fatal: false
+
+app:
+  kafka:
+    topic: cbar.messages

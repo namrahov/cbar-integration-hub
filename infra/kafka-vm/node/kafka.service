@@ -1,0 +1,27 @@
+[Unit]
+Description=Apache Kafka (KRaft, broker + controller)
+Documentation=https://kafka.apache.org/documentation/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=kafka
+Group=kafka
+
+# Small heap on purpose: Kafka needs page cache more than heap
+Environment="KAFKA_HEAP_OPTS=-Xms384m -Xmx384m"
+Environment=LOG_DIR=/var/log/kafka
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /etc/kafka/server.properties
+ExecStop=/opt/kafka/bin/kafka-server-stop.sh
+
+# Controlled shutdown migrates leadership before exit; give it time
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=10
+
+# Each partition segment = several open files, plus client sockets
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
