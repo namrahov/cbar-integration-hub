@@ -152,6 +152,8 @@ Example: 2000 msg/s × 2 KB × 86400 ≈ 345 GB/day; 7 days, RF=3, 3 brokers →
 | 9092 | TCP (SASL_SSL) | Broker ↔ broker | Replication (inter-broker) |
 | 9093 | TCP (SSL/mTLS) | Broker/controller ↔ controller | KRaft controller quorum |
 | 7071 (or 9404) | TCP (HTTP) | Prometheus → brokers | JMX exporter metrics |
+| 9100 | TCP (HTTP) | Prometheus → all Kafka servers | node_exporter (OS metrics) |
+| App port (`/actuator/prometheus`) | TCP (HTTP) | Prometheus → app servers | Producer/consumer metrics (Micrometer) |
 | 22 | TCP (SSH) | Admin jump host → servers | Administration |
 | 636 | TCP (LDAPS) | Kafka UI → AD | UI login |
 | 8090 | TCP (HTTPS) | Users → Kafka UI | Web UI (behind a reverse proxy) |
@@ -482,6 +484,44 @@ and the URP alert, which cleared after recovery. In a real environment monitorin
 **Stack:** JMX exporter (Java agent on every broker) → **Prometheus** → **Grafana**; alerts via
 Alertmanager → e-mail / Teams / PagerDuty. Logs → ELK / Splunk.
 
+### 11.1 Where the metrics come from
+
+| Source | Provides | How it is set up | Lab |
+|---|---|---|---|
+| **JMX exporter** | Kafka internals: URP, ISR, controller, throughput, latency, SASL login results, JVM | **Java agent** in the broker JVM: in `kafka.service`, `KAFKA_OPTS=-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/etc/kafka/jmx-exporter.yml` | `node/install-exporters.sh`, `node/jmx-exporter.yml` |
+| **node_exporter** | OS: CPU, memory, disk, network | Separate systemd service on every server, port 9100 | `node/node_exporter.service` |
+| **Spring Boot (Micrometer)** | Client side: send rate, **send errors**, consumer lag | `spring-boot-starter-actuator` + `micrometer-registry-prometheus`, `/actuator/prometheus` | both apps |
+
+Points for DevOps:
+- **Attaching the JMX agent needs a broker restart.** On a running cluster this is a **rolling restart**
+  (one server, wait for full ISR, then the next). Lab: `scripts/rolling-restart.ps1`; each broker was back
+  in 11–18 seconds.
+- The `jmx-exporter.yml` rules keep only the metrics that are needed — exporting everything loads both the
+  broker and Prometheus.
+- The JMX exporter jar, node_exporter and the Prometheus/Grafana artifacts go to the **internal repo** too
+  (with checksums), since servers usually have no internet.
+- Broker metrics **cannot see** an application that fails to send — the 1 message lost in the lab would only
+  have shown up in the producer's `kafka_producer_record_error_total`. Collect application metrics as well.
+
+### 11.2 Alert rules in the lab (`infra/monitoring/rules/kafka-alerts.yml`)
+
+| Alert | Severity | Condition |
+|---|---|---|
+| KafkaBrokerDown | critical | `up{job="kafka"} == 0` for 1 min |
+| KafkaOfflinePartitions | critical | A partition has no leader |
+| KafkaUnderMinIsr | critical | Partitions below `min.insync.replicas` (writes blocked) |
+| KafkaActiveControllerCount | critical | Active controllers ≠ 1 |
+| KafkaUnderReplicatedPartitions | warning | URP > 0 for 5 min |
+| KafkaIsrFlapping | warning | ISR keeps shrinking |
+| KafkaBrokerRestarted | warning | Broker process restarted in the last 15 minutes (crash, OOM or planned) |
+| KafkaAuthenticationFailures | warning | Failed SASL logins |
+| NodeExporterDown / NodeDiskAlmostFull / NodeMemoryLow | critical / warning | Server unreachable, disk > 75%, memory < 10% |
+| ProducerSendErrors | critical | The app failed to send (possible loss) |
+| ConsumerLagHigh | warning | Lag > 1000 for 5 min |
+
+In the lab, stopping `kafka-3` fired `KafkaBrokerDown` and `NodeExporterDown` within ~2 minutes, URP rose to
+59, all 20 messages sent meanwhile were written; after recovery the alerts cleared.
+
 | Metric | Normal | Alert |
 |---|---|---|
 | `UnderReplicatedPartitions` | 0 | > 0 for more than 5 minutes |
@@ -573,6 +613,9 @@ Run these in the real environment before go-live (lab: `scripts/08-drills.ps1`):
 | Quorum was lost | The producer did not fail, it hung | Timeouts / circuit breaker in the app; monitoring |
 | `netplan apply` | Dropped the SSH session | Apply network changes only to the interface concerned |
 | Password in a config file | `0640 root:kafka` | Files with secrets get the narrowest permissions |
+| Prometheus + Grafana + apps on the same host | The `kafka-3` VM could not restart for lack of RAM | Monitoring stack on its own server; include it in capacity planning |
+| Grafana (Windows) did not create its data dir | It stopped silently (no DB file) | Check that a service really came up (health check), read its logs |
+| JMX agent added to `kafka.service` | Brokers needed a restart | Agent change = rolling restart; plan for it |
 
 ---
 
@@ -605,7 +648,12 @@ Run these in the real environment before go-live (lab: `scripts/08-drills.ps1`):
 - [ ] Authorizer / audit logs shipped to the SIEM
 
 ### Monitoring and logs
-- [ ] Prometheus scrape (JMX exporter port), Grafana dashboard, alert rules — section 11
+- [ ] JMX exporter (Java agent) on every broker + a rolling-restart window for it
+- [ ] node_exporter on every server (port 9100)
+- [ ] Prometheus scrape: brokers (7071), servers (9100), apps (`/actuator/prometheus`)
+- [ ] Grafana dashboard, alert rules — section 11.2
+- [ ] Alertmanager: who, which channel (e-mail / Teams / on-call), at which severity
+- [ ] Monitoring stack on a server **separate** from the Kafka servers
 - [ ] Logs shipped to the central system (`/var/log/kafka`)
 
 ### Process and documentation
@@ -667,6 +715,12 @@ Run these in the real environment before go-live (lab: `scripts/08-drills.ps1`):
 | **Service account** | Account for an application, not a person |
 | **Vault** | Central store for secrets (passwords, keys) |
 | **JMX exporter** | Agent exposing Kafka metrics in Prometheus format |
+| **Java agent (`-javaagent`)** | Extra code loaded into a JVM when it starts |
+| **node_exporter** | Agent exposing a server's OS metrics (CPU, memory, disk) |
+| **Scrape** | Prometheus pulling metrics from a target at a fixed interval |
+| **Alert rule** | Metric condition (e.g. URP > 0 for 5 min) that raises an alert |
+| **Alertmanager** | Groups alerts and routes them to notification channels |
+| **Actuator / Micrometer** | Spring Boot's management endpoints / metrics library |
 | **MirrorMaker 2** | Cross-cluster replication tool (for DR) |
 | **RPO / RTO** | Acceptable data loss / recovery time |
 | **IaC** | Infrastructure as Code — infrastructure in code, with review |

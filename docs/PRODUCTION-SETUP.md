@@ -154,6 +154,8 @@ Məsələn: 2000 mesaj/san × 2 KB × 86400 ≈ 345 GB/gün; 7 gün, RF=3, 3 bro
 | 9092 | TCP (SASL_SSL) | Broker ↔ broker | Replikasiya (inter-broker) |
 | 9093 | TCP (SSL/mTLS) | Broker/controller ↔ controller | KRaft controller quorum |
 | 7071 (və ya 9404) | TCP (HTTP) | Prometheus → brokerlər | JMX exporter metrikləri |
+| 9100 | TCP (HTTP) | Prometheus → bütün Kafka serverləri | node_exporter (OS metrikləri) |
+| Tətbiqin portu (`/actuator/prometheus`) | TCP (HTTP) | Prometheus → tətbiq serverləri | Producer/consumer metrikləri (Micrometer) |
 | 22 | TCP (SSH) | Admin jump host → serverlər | Administrasiya |
 | 636 | TCP (LDAPS) | Kafka UI → AD | UI login |
 | 8090 | TCP (HTTPS) | İstifadəçilər → Kafka UI | Web interfeys (reverse proxy arxasında) |
@@ -487,6 +489,45 @@ və URP alert-ləri işə düşdü, bərpadan sonra söndü. Real mühitdə moni
 **Stack:** JMX exporter (hər brokerdə Java agent) → **Prometheus** → **Grafana**; alertlər
 Alertmanager → e-poçt / Teams / PagerDuty. Log-lar → ELK / Splunk.
 
+### 11.1 Metriklər haradan gəlir
+
+| Mənbə | Nə verir | Necə qurulur | Lab-da |
+|---|---|---|---|
+| **JMX exporter** | Kafka-nın daxili metrikləri: URP, ISR, controller, throughput, latency, SASL login nəticələri, JVM | Broker JVM-inə **Java agent** kimi: `kafka.service`-də `KAFKA_OPTS=-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/etc/kafka/jmx-exporter.yml` | `node/install-exporters.sh`, `node/jmx-exporter.yml` |
+| **node_exporter** | OS: CPU, RAM, disk, şəbəkə | Hər serverdə ayrıca systemd servisi, port 9100 | `node/node_exporter.service` |
+| **Spring Boot (Micrometer)** | Client tərəfi: göndərmə sürəti, **göndərmə xətaları**, consumer lag | `spring-boot-starter-actuator` + `micrometer-registry-prometheus`, `/actuator/prometheus` | hər iki tətbiqdə |
+
+DevOps üçün vacib məqamlar:
+- **JMX agent-in qoşulması broker restart tələb edir.** İşləyən klasterdə bu, **rolling restart** ilə edilir
+  (bir server, ISR tam olanadək gözlə, sonra növbəti). Lab-da `scripts/rolling-restart.ps1`; hər broker 11–18
+  saniyəyə qayıtdı.
+- `jmx-exporter.yml` qaydaları yalnız lazım olan metrikləri saxlayır — hamısını ixrac etmək brokeri və
+  Prometheus-u yükləyir.
+- JMX exporter jar-ı, node_exporter və Prometheus/Grafana artifact-ları da **daxili repoya** qoyulmalıdır
+  (checksum ilə), çünki serverlərdə internet adətən olmur.
+- Broker metrikləri tətbiqin "mesajı göndərə bilmədim" problemini **görmür** — lab-da itən 1 mesajı yalnız
+  producer-in `kafka_producer_record_error_total` metriki göstərərdi. Ona görə tətbiq metrikləri də
+  toplanmalıdır.
+
+### 11.2 Lab-dakı alert qaydaları (`infra/monitoring/rules/kafka-alerts.yml`)
+
+| Alert | Ciddilik | Şərt |
+|---|---|---|
+| KafkaBrokerDown | critical | `up{job="kafka"} == 0`, 1 dəq |
+| KafkaOfflinePartitions | critical | Leader-i olmayan partition var |
+| KafkaUnderMinIsr | critical | `min.insync.replicas`-dan aşağı partition (yazma dayanıb) |
+| KafkaActiveControllerCount | critical | Aktiv controller ≠ 1 |
+| KafkaUnderReplicatedPartitions | warning | URP > 0, 5 dəq |
+| KafkaIsrFlapping | warning | ISR davamlı kiçilir |
+| KafkaBrokerRestarted | warning | Broker prosesi son 15 dəqiqədə yenidən başlayıb (crash, OOM və ya planlı) |
+| KafkaAuthenticationFailures | warning | Uğursuz SASL login-lər |
+| NodeExporterDown / NodeDiskAlmostFull / NodeMemoryLow | critical / warning | Server əlçatmaz, disk > 75%, RAM < 10% |
+| ProducerSendErrors | critical | Tətbiq mesaj göndərə bilmədi (mümkün itki) |
+| ConsumerLagHigh | warning | Lag > 1000, 5 dəq |
+
+Lab-da `kafka-3` dayandırılanda `KafkaBrokerDown` və `NodeExporterDown` ~2 dəqiqəyə **firing** oldu, URP 59-a
+qalxdı, bu müddətdə göndərilən 20 mesajın hamısı yazıldı; bərpadan sonra alert-lər söndü.
+
 | Metrik | Normal | Alert |
 |---|---|---|
 | `UnderReplicatedPartitions` | 0 | > 0, 5 dəqiqədən çox |
@@ -578,6 +619,9 @@ Klaster istismara verilməzdən əvvəl bu testlər real mühitdə də aparılma
 | Quorum itdi | Producer xəta vermədi, asılı qaldı | Tətbiqdə timeout / circuit breaker; monitorinq |
 | `netplan apply` | SSH sessiyası qırıldı | Şəbəkə dəyişikliyi yalnız lazım olan interfeysə |
 | Konfiqurasiya faylında parol | `0640 root:kafka` | Secret-li fayllar ən az icazə ilə |
+| Prometheus + Grafana + tətbiqlər eyni hostda | `kafka-3` VM-i RAM çatmadığı üçün yenidən başlaya bilmədi | Monitorinq stack-i ayrıca serverdə; resurs planlamasına daxil et |
+| Grafana (Windows) data qovluğunu özü yaratmadı | Səssizcə dayandı (DB faylı yaradılmadı) | Servisin həqiqətən qalxdığını yoxla (health check), log-lara bax |
+| JMX agent `kafka.service`-ə əlavə olundu | Brokerlər restart tələb etdi | Agent dəyişikliyi = rolling restart, plana daxil et |
 
 ---
 
@@ -610,7 +654,12 @@ Klaster istismara verilməzdən əvvəl bu testlər real mühitdə də aparılma
 - [ ] Authorizer / audit log-larının SIEM-ə göndərilməsi
 
 ### Monitorinq və log
-- [ ] Prometheus scrape (JMX exporter portu), Grafana dashboard, alert qaydaları — bölmə 11
+- [ ] JMX exporter (Java agent) hər brokerdə + onun üçün rolling restart pəncərəsi
+- [ ] node_exporter hər serverdə (port 9100)
+- [ ] Prometheus scrape: brokerlər (7071), serverlər (9100), tətbiqlər (`/actuator/prometheus`)
+- [ ] Grafana dashboard, alert qaydaları — bölmə 11.2
+- [ ] Alertmanager: kim, hansı kanal (e-poçt / Teams / on-call), hansı ciddilikdə
+- [ ] Monitorinq stack-i Kafka serverlərindən **ayrı** serverdə
 - [ ] Log-ların mərkəzi sistemə göndərilməsi (`/var/log/kafka`)
 
 ### Proses və sənədləşmə
@@ -672,6 +721,12 @@ Klaster istismara verilməzdən əvvəl bu testlər real mühitdə də aparılma
 | **Service account** | İnsan yox, tətbiq üçün hesab |
 | **Vault** | Secret-lərin (parol, açar) mərkəzi saxlanma sistemi |
 | **JMX exporter** | Kafka metriklərini Prometheus formatında verən agent |
+| **Java agent (`-javaagent`)** | JVM işə düşəndə onun içinə yüklənən əlavə kod |
+| **node_exporter** | Serverin OS metriklərini (CPU, RAM, disk) verən agent |
+| **Scrape** | Prometheus-un hədəfdən metrikləri müntəzəm çəkməsi |
+| **Alert rule** | Metrik şərti (məs. URP > 0, 5 dəq) — ödənəndə alert yaranır |
+| **Alertmanager** | Alert-ləri qruplaşdırıb bildiriş kanallarına göndərən komponent |
+| **Actuator / Micrometer** | Spring Boot-un idarəetmə endpoint-ləri / metrik kitabxanası |
 | **MirrorMaker 2** | Klasterlər arası replikasiya aləti (DR üçün) |
 | **RPO / RTO** | Qəbul olunan data itkisi / bərpa müddəti |
 | **IaC** | Infrastructure as Code — infrastruktur kodla və review ilə |
